@@ -78,7 +78,7 @@ function readIncoming(): Note | null {
 addEventListener('popstate', () => render(readIncoming()));
 ```
 
-With zodal, `createPersistence(...).shareLink(id, baseUrl)` and `.readLink(url)` do the wrap/unwrap for you (see `holdall-files`). To share a whole collection, pass `exportCollection(items, spec)` to `makeShareLink` and read it back with `parseCollection`.
+With zodal, `createPersistence(...).shareLink(id, baseUrl, {stripKeys: ['d']})` and `await .readLink(url)` do the wrap/unwrap for you (and drop a local-id param from the shared link) (see `holdall-files`). To share a whole collection, pass `exportCollection(items, spec)` to `makeShareLink` and read it back with `parseCollection`.
 
 Non-JS stacks: any language can write and read links. base64url without padding of raw DEFLATE (Python: `zlib.compressobj(9, zlib.DEFLATED, -15)`) of the JSON text. `npx holdall encode <file.json> --url https://example.com/app` prints a link and its tier; `npx holdall decode '<link>'` prints what a link carries. Use them to debug "the link is broken" reports and to build golden fixtures.
 
@@ -105,7 +105,7 @@ Default for collections: **do not mirror the payload into the address at all.** 
 2. Never build outgoing links from `location.href` unstripped: a "share this page" or OAuth-redirect link would leak the user's payload. Always `stripUrlParams` first, and add the payload only on an explicit share.
 3. The fragment is shared with the router. holdall reads `#k=v&k=v`, and for hash routers `#/route?k=v` (the path is kept on write). A plain `#anchor` used for scrolling collides with params: prefer path-based routes (History API), or scroll by an id param instead.
 4. Compress after pruning default-valued fields, and measure the final URL: raw JSON grows ~65% percent-encoded and shrinks 50-86% deflated. Re-run the tiers on real data, not fixtures.
-5. Decode defensively: a mangled param yields "this link looks damaged" and `null`, never an exception in render. `decodePayload`/`readShareLink` refuse payloads that inflate past `maxBytes` (default 8 MB, `DEFAULT_MAX_DECODED_BYTES`), since a 2 KB link can expand to gigabytes; lower it to what your app can actually hold.
+5. Decode defensively: a mangled param yields "this link looks damaged" and `null`, never an exception in render. `decodePayload`/`readShareLink` refuse payloads that inflate past `maxBytes` (default 8 MB, `DEFAULT_MAX_DECODED_BYTES`), since DEFLATE expands up to about 1000x and browsers accept URLs of about 2 MB; lower it to what your app can actually hold.
 6. Fragment payloads are not secret. Anyone with the link can read it; it sits in the chat app, the email provider, browser history (which may sync to other devices) and any page script that reads `location`. Unfurlers never see the fragment, so previews are generic.
 7. Do not add msgpack/CBOR (1-2% gain after DEFLATE, lost debuggability) or jsurl/rison/urlon (dormant).
 

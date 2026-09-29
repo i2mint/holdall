@@ -19,7 +19,7 @@ Read the request and the app, then load only the nested skills you need. Most re
 | The user wants... | Load | holdall API (if JS/TS) |
 |---|---|---|
 | state to survive a reload; autosave; "don't lose my input" | `holdall-local-store` | `createAutosave`, envelope `wrap`/`unwrap` |
-| to pick localStorage vs IndexedDB vs OPFS; schema versions; migrations | `holdall-local-store` | `unwrap(raw, {version, migrations, schema})` |
+| to pick localStorage vs IndexedDB vs OPFS; schema versions; migrations | `holdall-local-store` | `unwrap(raw, {app, kind, version, migrations, schema})` |
 | a link that carries the state; URL/query state; "send this to someone" | `holdall-share-links` | `makeShareLink`, `readShareLink`, `linkTier` |
 | save/open a file; export/import one item or a whole collection; merge with conflicts | `holdall-files` | `saveJson`, `openText`, `exportCollection`, `planImport`, `resolveImport` |
 | data that is not silently wiped; an Install button; iOS/Safari advice | `holdall-durability` | `ensurePersistence`, `installAdvice`, `captureInstallPrompt` |
@@ -31,7 +31,7 @@ If the app keeps collections in zodal (`@zodal/store` `DataProvider`), use the f
 ## 2. Route by stack
 
 - **JS/TS (any framework).** `npm i holdall`. The core is headless and framework-free: pure functions, browser globals injectable. Wrap them in the app's own idiom (a React hook, a Svelte store, a Vue composable). Do not add a UI framework for this.
-- **zodal app.** `holdall/zodal` + the app's `DataProvider`; add `persistenceOperations` to `defineCollection({operations})`; the app renders the dialogs.
+- **zodal app.** `holdall/zodal` + the app's `DataProvider`; add `persistenceOperations()` to `defineCollection({operations})`; the app renders the dialogs.
 - **Other stacks** (Python-rendered pages, Elm, plain HTML). Follow the patterns in the nested skills; the formats (envelope, `z1.`/`j1.` payloads, collection files) are plain JSON and base64url, so any language can read and write them. `npx holdall decode <link>` inspects a link from a terminal.
 
 ## 3. The invariants (every route)

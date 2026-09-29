@@ -11,6 +11,7 @@
 import type { DataProvider } from '@zodal/store';
 import { exportCollection, parseCollection, type ParsedCollection } from './collection';
 import { type Envelope, type EnvelopeSpec, unwrap, wrap } from './envelope';
+import { HoldallError } from './errors';
 import { makeShareLink, readShareLink, type ShareLink, type ShareLinkOptions } from './link';
 import { type ImportPlan, planImport, resolveImport, type ResolveOptions } from './merge';
 
@@ -18,6 +19,8 @@ export interface PersistenceOptions<T> extends EnvelopeSpec<T> {
   provider: DataProvider<T>;
   /** Field holding the unique key. Default `'id'`. */
   idField?: string;
+  /** Page size used to read the whole collection (providers may cap unpaginated reads). Default 500. */
+  pageSize?: number;
   now?: () => Date;
 }
 
@@ -38,20 +41,24 @@ export interface PendingImport<T> {
 }
 
 export function createPersistence<T extends object>(opts: PersistenceOptions<T>) {
-  const { provider, idField = 'id', now, ...spec } = opts;
+  const { provider, idField = 'id', pageSize = 500, now, ...spec } = opts;
   const keyOf = (v: T) => String((v as Record<string, unknown>)[idField]);
   const rekey = (v: T, key: string) => ({ ...v, [idField]: key }) as T;
 
-  const all = async () => (await provider.getList({})).data;
-
-  const write = async (value: T) => {
-    if (provider.upsert) return provider.upsert(value);
-    try {
-      await provider.getOne(keyOf(value));
-    } catch {
-      return provider.create(value);
+  // Read every page: some providers (PostgREST, Supabase) silently cap unpaginated reads.
+  const all = async () => {
+    const out: T[] = [];
+    for (let page = 1; ; page++) {
+      const { data, total } = await provider.getList({ pagination: { page, pageSize } });
+      out.push(...data);
+      if (data.length === 0 || data.length < pageSize || out.length >= total) return out;
     }
-    return provider.update(keyOf(value), value);
+  };
+
+  // The plan already knows whether a key is held, so no probing read (which would mistake a network error for "absent").
+  const write = (value: T, isNew: boolean) => {
+    if (provider.upsert) return provider.upsert(value);
+    return isNew ? provider.create(value) : provider.update(keyOf(value), value);
   };
 
   return {
@@ -69,8 +76,14 @@ export function createPersistence<T extends object>(opts: PersistenceOptions<T>)
     /** Dry run: parse a file (text or parsed JSON) and compare it with what is held. Pass `equals` to ignore volatile fields. */
     async planImport(raw: unknown, { equals }: { equals?: (a: T, b: T) => boolean } = {}): Promise<PendingImport<T>> {
       const parsed = parseCollection<T>(raw, spec, { keyOf });
+      // The store writes by the value's own id, so a file key that disagrees with it would plan one thing and write another.
+      const items = parsed.items.filter(([key, value]) => {
+        if (keyOf(value) === key) return true;
+        parsed.rejected.push({ key, error: new HoldallError('invalid', `Item "${key}" carries ${idField} "${keyOf(value)}"; they must match.`) });
+        return false;
+      });
       const held = (await all()).map((v) => [keyOf(v), v] as const);
-      return { plan: planImport(held, parsed.items, { equals }), rejected: parsed.rejected };
+      return { plan: planImport(held, items, { equals }), rejected: parsed.rejected };
     },
 
     /** Apply a plan. Default policy renames conflicting incoming items with a prefix. */
@@ -87,7 +100,7 @@ export function createPersistence<T extends object>(opts: PersistenceOptions<T>)
       };
       for (const w of res.writes) {
         try {
-          await write(w.value);
+          await write(w.value, w.action !== 'overwrite');
         } catch (e) {
           report.failed.push({ key: w.key, message: e instanceof Error ? e.message : String(e) });
           continue;
@@ -99,13 +112,16 @@ export function createPersistence<T extends object>(opts: PersistenceOptions<T>)
       return report;
     },
 
-    /** A link carrying the item itself (not its local id). Check `tier` before offering it. */
+    /** A link carrying the item itself. Pass `stripKeys` for params holding local ids (e.g. `['d']`). Check `tier` before offering it. */
     async shareLink(id: string, baseUrl: string | URL, linkOpts?: ShareLinkOptions): Promise<ShareLink> {
       return makeShareLink(wrap(await provider.getOne(id), spec, { now }), baseUrl, linkOpts);
     },
 
-    /** The item a link carries, migrated and validated; `null` if the link carries none. */
-    readLink(url: string | URL, linkOpts?: Pick<ShareLinkOptions, 'key' | 'part'>): T | null {
+    /**
+     * The item a link carries, migrated and validated; `null` if the link carries none.
+     * Async so that encrypted links can be read here later without changing callers.
+     */
+    async readLink(url: string | URL, linkOpts?: Pick<ShareLinkOptions, 'key' | 'part'> & { maxBytes?: number }): Promise<T | null> {
       const raw = readShareLink(url, linkOpts);
       return raw === null ? null : unwrap(raw, spec);
     },
@@ -118,9 +134,16 @@ export type Persistence<T extends object> = ReturnType<typeof createPersistence<
  * zodal operation definitions for `defineCollection(schema, {operations})`.
  * Names are stable; wire each to the matching `Persistence` method.
  */
-export const persistenceOperations = [
+export interface PersistenceOperation {
+  name: 'holdall.exportAll' | 'holdall.import' | 'holdall.saveFile' | 'holdall.shareLink';
+  label: string;
+  scope: 'item' | 'collection';
+}
+
+/** A fresh (mutable) array each call, ready for `defineCollection(schema, {operations: persistenceOperations()})`. */
+export const persistenceOperations = (): PersistenceOperation[] => [
   { name: 'holdall.exportAll', label: 'Export all', scope: 'collection' },
   { name: 'holdall.import', label: 'Import…', scope: 'collection' },
   { name: 'holdall.saveFile', label: 'Save to file', scope: 'item' },
   { name: 'holdall.shareLink', label: 'Copy share link', scope: 'item' },
-] as const;
+];

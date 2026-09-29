@@ -69,7 +69,7 @@ for (const w of res.writes) await store.set(w.key, w.value);  // add | overwrite
 report({ ...res, rejected: parsed.rejected });                // never drop silently
 ```
 
-- `parseCollection(raw, spec, {keyOf?})` accepts JSON text or a parsed value, a collection file or a single-item file (needs `keyOf`; `source` says which), validates **item by item** and returns `{items, rejected: [{key, error}], source}`. One bad record is reported, not fatal. `spec.bareVersion` accepts old files written before envelopes existed.
+- `parseCollection(raw, spec, {keyOf?})` accepts JSON text or a parsed value, a collection file or a single-item file (needs `keyOf`; `source` says which), validates **item by item** and returns `{items, rejected: [{key, error}], source}`. One bad record is reported, not fatal. Files written before envelopes existed are refused: wrap them first (`wrap({items: legacy}, {...spec, kind: collectionKind(spec.kind)})`), then parse. The zodal facade also rejects an item whose file key differs from its id field.
 - `planImport(held, incoming, {equals?})` returns `{added, identical, conflicts: [{key, existing, incoming}], heldKeys}`. Equality is RFC 8785 canonical JSON (`canonicalEquals`), so key order and number formatting do not matter. Identical content is a silent no-op.
 - `resolveImport(plan, {policy='rename', decisions, prefix='imported-', renameKey?, rekey?})` returns `{writes, skipped, identical}`. Policies: `rename` (keep both: incoming key gets prefix `imported-`, then `imported-2-…` until free), `overwrite`, `skip`. `decisions[key]` beats the policy. **Pass `rekey`** whenever the value carries its own id, or the renamed copy still has the old id and collides.
 - File-level errors are `HoldallError` with a `code`; map each to one sentence: `not-an-envelope` "This file was not exported by this app", `wrong-app`, `wrong-kind` (a different kind of file), `too-new` "Reload to update the app", `bad-payload` (not JSON), `invalid`, `missing-migration`.
@@ -94,9 +94,9 @@ Headless or agent callers use `policy: 'skip'` or `'rename'`, never `'overwrite'
 | `exportOne(id)` | single-item envelope |
 | `planImport(raw)` | parse (collection or single item) and compare; returns `{plan, rejected}` |
 | `applyImport(pending, {policy, decisions, prefix, renameKey})` | applies; returns `ImportReport {added, overwritten, renamed:[{from,to}], skipped, identical, rejected, failed}`; `rekey` is set to `idField` for you; provider refusals land in `failed` |
-| `shareLink(id, baseUrl, opts?)` / `readLink(url, opts?)` | one item as a payload link (see `holdall-share-links`) |
+| `shareLink(id, baseUrl, {stripKeys?})` / `await readLink(url, opts?)` | one item as a payload link (see `holdall-share-links`); pass `stripKeys: ['d']` for a param holding a local id |
 
-Add `persistenceOperations` (`holdall.exportAll`, `holdall.import`, `holdall.saveFile`, `holdall.shareLink`) to `defineCollection({operations})` and wire each name to the method above. The app still renders the dialog and the toasts.
+Add `persistenceOperations()` (a fresh array of `holdall.exportAll`, `holdall.import`, `holdall.saveFile`, `holdall.shareLink`) to `defineCollection({operations})` and wire each name to the method above. The app still renders the dialog and the toasts.
 
 ## 6. "Last exported" and nudges
 

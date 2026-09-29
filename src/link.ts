@@ -11,7 +11,10 @@
 import { deflateSync, Inflate, strFromU8, strToU8 } from 'fflate';
 import { HoldallError } from './errors';
 
-export type Codec = 'z1' | 'j1';
+export type LinkCodec = 'z1' | 'j1';
+
+/** Codecs reserved for later versions; the sync decoder names them instead of calling them unknown. */
+const ASYNC_CODECS = new Set(['e1']);
 
 // ---- base64url (RFC 4648 §5, no padding) ----
 
@@ -25,7 +28,12 @@ export function toBase64Url(bytes: Uint8Array): string {
 export function fromBase64Url(text: string): Uint8Array {
   if (!/^[A-Za-z0-9_-]*$/.test(text)) throw new HoldallError('bad-payload', 'The link payload has characters base64url does not use.');
   const b64 = text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (text.length % 4)) % 4);
-  const bin = atob(b64);
+  let bin: string;
+  try {
+    bin = atob(b64);
+  } catch (e) {
+    throw new HoldallError('bad-payload', 'The link payload is damaged (it is not valid base64url). Was the link cut short?', e);
+  }
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
@@ -35,11 +43,13 @@ export function fromBase64Url(text: string): Uint8Array {
 
 export interface EncodeOptions {
   /** `auto` (default) picks whichever of `z1`/`j1` is shorter. */
-  codec?: Codec | 'auto';
+  codec?: LinkCodec | 'auto';
 }
 
 export function encodePayload(value: unknown, { codec = 'auto' }: EncodeOptions = {}): string {
-  const bytes = strToU8(JSON.stringify(value));
+  const json = JSON.stringify(value);
+  if (json === undefined) throw new HoldallError('invalid', 'This value cannot be put in a link (it has no JSON form).');
+  const bytes = strToU8(json);
   const j1 = () => 'j1.' + toBase64Url(bytes);
   const z1 = () => 'z1.' + toBase64Url(deflateSync(bytes, { level: 9 }));
   if (codec === 'j1') return j1();
@@ -48,8 +58,11 @@ export function encodePayload(value: unknown, { codec = 'auto' }: EncodeOptions 
   return a.length <= b.length ? a : b;
 }
 
-/** Links come from strangers: never inflate more than this (a 2 KB link can expand to gigabytes). */
+/** Links come from strangers: never inflate more than this (DEFLATE expands up to ~1000x, and browsers accept ~2 MB URLs). */
 export const DEFAULT_MAX_DECODED_BYTES = 8 * 1024 * 1024;
+
+// Feed the inflater in small slices so the cap is checked before memory is spent.
+const INFLATE_SLICE = 1024;
 
 function inflateCapped(bytes: Uint8Array, maxBytes: number): Uint8Array {
   const chunks: Uint8Array[] = [];
@@ -59,7 +72,10 @@ function inflateCapped(bytes: Uint8Array, maxBytes: number): Uint8Array {
     if (total > maxBytes) throw new HoldallError('bad-payload', `The link payload expands past ${maxBytes} bytes; refusing to decode it.`);
     chunks.push(chunk);
   });
-  inflater.push(bytes, true);
+  for (let i = 0; i < bytes.length; i += INFLATE_SLICE) {
+    inflater.push(bytes.subarray(i, i + INFLATE_SLICE), i + INFLATE_SLICE >= bytes.length);
+  }
+  if (bytes.length === 0) inflater.push(bytes, true);
   const out = new Uint8Array(total);
   let at = 0;
   for (const c of chunks) {
@@ -82,6 +98,8 @@ export function decodePayload(payload: string, { maxBytes = DEFAULT_MAX_DECODED_
       if (e instanceof HoldallError) throw e;
       throw new HoldallError('bad-payload', 'The link payload is damaged (it does not decompress). Was the link cut short?', e);
     }
+  } else if (ASYNC_CODECS.has(codec)) {
+    throw new HoldallError('async-codec', `This link uses the "${codec}" codec, which needs the asynchronous reader.`, codec);
   } else throw new HoldallError('unknown-codec', `Unknown link codec "${codec}". This link may come from a newer version.`, codec);
   try {
     return JSON.parse(strFromU8(bytes));
@@ -163,6 +181,7 @@ export function getUrlParam(url: string | URL, key: string, { part = 'hash' as U
 export function stripUrlParams(url: string | URL, keys: string[], { part = 'hash' as UrlPart } = {}): string {
   const u = new URL(String(url));
   const params = paramsOf(u, part);
+  if (!keys.some((k) => params.has(k))) return u.href;
   for (const k of keys) params.delete(k);
   return withParams(u, part, params).href;
 }
@@ -174,6 +193,11 @@ export interface ShareLinkOptions extends EncodeOptions {
   key?: string;
   part?: UrlPart;
   budget?: LinkBudget;
+  /**
+   * Params to remove from the base URL, in both query and fragment, e.g. a
+   * `d` param holding a local id that means nothing on the recipient's device.
+   */
+  stripKeys?: string[];
 }
 
 export interface ShareLink {
@@ -184,8 +208,10 @@ export interface ShareLink {
 
 /** Encode `value` into `baseUrl`. Always returns the link; check `tier` before offering "Copy link". */
 export function makeShareLink(value: unknown, baseUrl: string | URL, opts: ShareLinkOptions = {}): ShareLink {
-  const { key = 's', part = 'hash', budget = DEFAULT_LINK_BUDGET, codec } = opts;
-  const url = setUrlParam(baseUrl, key, encodePayload(value, { codec }), { part });
+  const { key = 's', part = 'hash', budget = DEFAULT_LINK_BUDGET, codec, stripKeys = [] } = opts;
+  let base = String(baseUrl);
+  if (stripKeys.length) base = stripUrlParams(stripUrlParams(base, stripKeys, { part: 'search' }), stripKeys, { part: 'hash' });
+  const url = setUrlParam(base, key, encodePayload(value, { codec }), { part });
   return { url, length: url.length, tier: linkTier(url, budget) };
 }
 

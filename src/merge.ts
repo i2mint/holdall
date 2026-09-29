@@ -9,8 +9,8 @@
  */
 import canonicalize from 'canonicalize';
 
-export type Entry<V> = readonly [key: string, value: V];
-export type Keyed<V> = Iterable<Entry<V>> | Map<string, V> | Record<string, V>;
+export type KeyedEntry<V> = readonly [key: string, value: V];
+export type Keyed<V> = Iterable<KeyedEntry<V>> | Map<string, V> | Record<string, V>;
 
 export interface Conflict<V> {
   key: string;
@@ -20,7 +20,7 @@ export interface Conflict<V> {
 
 export interface ImportPlan<V> {
   /** Keys not held yet. */
-  added: Entry<V>[];
+  added: KeyedEntry<V>[];
   /** Keys held with an equal value: importing them changes nothing. */
   identical: string[];
   /** Keys held with a different value: these need a decision. */
@@ -32,9 +32,9 @@ export interface ImportPlan<V> {
 /** Equality by RFC 8785 canonical JSON: key order and number formatting do not matter. */
 export const canonicalEquals = (a: unknown, b: unknown): boolean => canonicalize(a) === canonicalize(b);
 
-export function toEntries<V>(keyed: Keyed<V>): Entry<V>[] {
+export function toEntries<V>(keyed: Keyed<V>): KeyedEntry<V>[] {
   if (keyed instanceof Map) return [...keyed.entries()];
-  if (Symbol.iterator in Object(keyed)) return [...(keyed as Iterable<Entry<V>>)];
+  if (Symbol.iterator in Object(keyed)) return [...(keyed as Iterable<KeyedEntry<V>>)];
   return Object.entries(keyed as Record<string, V>);
 }
 
@@ -71,7 +71,7 @@ export interface ResolveOptions<V> {
 
 export type WriteAction = 'add' | 'overwrite' | 'rename';
 
-export interface Write<V> {
+export interface ImportWrite<V> {
   key: string;
   value: V;
   action: WriteAction;
@@ -80,10 +80,13 @@ export interface Write<V> {
 }
 
 export interface ImportResolution<V> {
-  writes: Write<V>[];
+  writes: ImportWrite<V>[];
   skipped: string[];
   identical: string[];
 }
+
+/** A rename that keeps colliding after this many attempts is a bug in `renameKey`. */
+const MAX_RENAME_ATTEMPTS = 10_000;
 
 const defaultRenameKey = (key: string, attempt: number, prefix: string) =>
   attempt === 1 ? `${prefix}${key}` : `${prefix}${attempt}-${key}`;
@@ -103,13 +106,16 @@ export function resolveImport<V>(plan: ImportPlan<V>, opts: ResolveOptions<V> = 
     identical: [...plan.identical],
   };
   for (const { key, incoming } of plan.conflicts) {
-    const choice = decisions[key] ?? policy;
+    const choice = Object.hasOwn(decisions, key) ? decisions[key] : policy;
     if (choice === 'skip') out.skipped.push(key);
     else if (choice === 'overwrite') out.writes.push({ key, value: incoming, action: 'overwrite' });
     else {
       let attempt = 1;
       let newKey = renameKey(key, attempt, prefix);
-      while (taken.has(newKey)) newKey = renameKey(key, ++attempt, prefix);
+      while (taken.has(newKey)) {
+        if (++attempt > MAX_RENAME_ATTEMPTS) throw new Error(`renameKey found no free key for "${key}" after ${MAX_RENAME_ATTEMPTS} attempts.`);
+        newKey = renameKey(key, attempt, prefix);
+      }
       taken.add(newKey);
       out.writes.push({ key: newKey, value: rekey(incoming, newKey), action: 'rename', from: key });
     }

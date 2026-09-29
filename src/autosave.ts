@@ -19,7 +19,7 @@ export interface AutosaveOptions<T> {
 
 export interface Autosave<T> {
   schedule(value: T): void;
-  /** Write the pending value now. Resolves when the write settles. */
+  /** Write the pending value now. Resolves when every earlier write, and this one, has settled. */
   flush(): Promise<void>;
   pending(): boolean;
   dispose(): void;
@@ -31,19 +31,30 @@ export function createAutosave<T>(opts: AutosaveOptions<T>): Autosave<T> {
   const doc = opts.doc ?? (globalThis as { document?: Target & { visibilityState?: string } }).document;
   let pendingValue: { value: T } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  // Saves run one at a time, in order: a slow older save can never land after a newer one.
+  // When idle, a save starts synchronously (a `pagehide` handler must not defer its write).
+  let inFlight: Promise<void> | null = null;
 
-  const flush = async () => {
-    if (timer) clearTimeout(timer);
-    timer = null;
+  const saveNext = async () => {
     if (!pendingValue) return;
     const { value } = pendingValue;
     pendingValue = null;
     try {
       await save(value);
     } catch (e) {
-      if (!pendingValue) pendingValue = { value }; // keep it for the next flush unless newer input arrived
+      if (!pendingValue) pendingValue = { value }; // retry later, unless newer input has replaced it
       onError(e, value);
     }
+  };
+
+  const flush = (): Promise<void> => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    const next: Promise<void> = (inFlight ? inFlight.then(saveNext) : saveNext()).finally(() => {
+      if (inFlight === next) inFlight = null;
+    });
+    inFlight = next;
+    return next;
   };
   const onPageHide = () => void flush();
   const onVisibility = () => {

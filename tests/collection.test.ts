@@ -31,5 +31,6 @@ describe('collection files', () => {
     expect(code({ sessions: [] })).toBe('not-an-envelope');
     expect(code({ app: 'x', kind: 'note:collection', version: 1, data: {} })).toBe('wrong-app');
     expect(code({ app: 'demo', kind: 'note:collection', version: 2, data: {} })).toBe('too-new');
+    expect(code({ app: 'demo', kind: 'note:collection', version: 1, data: { items: [{ id: 'a', text: 'x' }] } })).toBe('invalid');
   });
 });

@@ -40,7 +40,7 @@ Plus a read-only subagent, `holdall-auditor`, that audits an existing app's pers
 | durability | `ensurePersistence`, `detectInstallEnv`, `installAdvice`, `captureInstallPrompt` |
 | autosave | `createAutosave` (debounced, flushes on `pagehide` and when the page is hidden, retries failed writes) |
 
-**A zodal facade** (`holdall/zodal`): `createPersistence({provider, app, kind, version, schema})` over any zodal `DataProvider` gives `exportAll`, `planImport`, `applyImport`, `shareLink` and `readLink`, and `persistenceOperations` for `defineCollection({operations})`. Your app supplies the renderings (the conflict dialog, the install card).
+**A zodal facade** (`holdall/zodal`): `createPersistence({provider, app, kind, version, schema})` over any zodal `DataProvider` gives `exportAll`, `planImport`, `applyImport`, `shareLink` and `readLink`, and `persistenceOperations()` for `defineCollection({operations})`. Your app supplies the renderings (the conflict dialog, the install card).
 
 ## Installing the skills
 

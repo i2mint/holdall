@@ -6,18 +6,17 @@
  *   holdall encode <file|-> --url <u>   print a share link and its length tier
  *   holdall decode <link|payload|file|->  print the JSON a link carries
  */
-import { readFileSync } from 'node:fs';
-import { decodePayload, encodePayload, linkTier, makeShareLink } from './link';
+import { existsSync, readFileSync } from 'node:fs';
+import { decodePayload, encodePayload, getUrlParam, linkTier, makeShareLink } from './link';
 
 const USAGE = 'usage: holdall encode <file|-> [--url <base>] [--key <k>] | holdall decode <link|payload|file|->';
 
-function read(arg: string): string {
+/** `-` is stdin; an existing path is read; anything else is taken literally (a link or a payload). */
+function read(arg: string, { mustBeFile = false } = {}): string {
   if (arg === '-') return readFileSync(0, 'utf8');
-  try {
-    return readFileSync(arg, 'utf8');
-  } catch {
-    return arg;
-  }
+  if (existsSync(arg)) return readFileSync(arg, 'utf8');
+  if (mustBeFile) throw new Error(`No such file: ${arg}`);
+  return arg;
 }
 
 function flag(args: string[], name: string): string | undefined {
@@ -28,11 +27,8 @@ function flag(args: string[], name: string): string | undefined {
 function payloadIn(text: string, key: string): string {
   const t = text.trim();
   if (!/^[a-z]+:\/\//.test(t)) return t;
-  const url = new URL(t);
-  for (const part of [url.hash.replace(/^#/, ''), url.search.replace(/^\?/, '')]) {
-    const v = new URLSearchParams(part).get(key);
-    if (v) return v;
-  }
+  const v = getUrlParam(t, key, { part: 'hash' }) ?? getUrlParam(t, key, { part: 'search' });
+  if (v) return v;
   throw new Error(`No "${key}" parameter in that link.`);
 }
 
@@ -40,7 +36,7 @@ export function main(argv: string[]): number {
   const [cmd, arg, ...rest] = argv;
   const key = flag(rest, '--key') ?? 's';
   if (cmd === 'encode' && arg) {
-    const value = JSON.parse(read(arg));
+    const value = JSON.parse(read(arg, { mustBeFile: true }));
     const base = flag(rest, '--url');
     if (base) {
       const link = makeShareLink(value, base, { key });

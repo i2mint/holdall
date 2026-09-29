@@ -66,17 +66,18 @@ export function isEnvelope(raw: unknown): raw is Envelope {
 }
 
 /** Run migrations from `from` up to `to`. Throws `missing-migration` on a gap. */
-export function migrate(data: unknown, from: number, to: number, migrations: Migrations = {}): unknown {
+export function runMigrations(data: unknown, from: number, to: number, migrations: Migrations = {}): unknown {
   let out = data;
   for (let v = from; v < to; v++) {
     const step = migrations[v];
     if (!step) throw new HoldallError('missing-migration', `No migration from version ${v} to ${v + 1}.`, { from: v });
     out = step(out);
+    if (out === undefined) throw new HoldallError('invalid', `The migration from version ${v} returned nothing.`, { from: v });
   }
   return out;
 }
 
-export function validate<T>(data: unknown, schema?: StandardSchemaV1<unknown, T>): T {
+export function validateWith<T>(data: unknown, schema?: StandardSchemaV1<unknown, T>): T {
   if (!schema) return data as T;
   const result = schema['~standard'].validate(data);
   if (result instanceof Promise) {
@@ -108,5 +109,5 @@ export function unwrap<T>(raw: unknown, spec: EnvelopeSpec<T>): T {
       env.version,
     );
   }
-  return validate(migrate(env.data, env.version, spec.version, spec.migrations), spec.schema);
+  return validateWith(runMigrations(env.data, env.version, spec.version, spec.migrations), spec.schema);
 }

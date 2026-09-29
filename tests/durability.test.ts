@@ -28,6 +28,10 @@ describe('platform and install advice', () => {
     expect(detectPlatform(env(UA.android))).toBe('android');
     expect(detectPlatform(env(UA.winFirefox))).toBe('firefox-windows');
     expect(detectPlatform(env(UA.instagram))).toBe('in-app');
+    const iosWebView = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
+    expect(detectPlatform(env(iosWebView))).toBe('in-app');
+    expect(detectPlatform(env(UA.winFirefox.replace(/143/g, '120')))).toBe('firefox-other');
+    expect(detectPlatform(env(UA.macSafari.replace('Version/18.0', 'Version/16.6')))).toBe('other');
   });
 
   it('advises per platform', () => {
@@ -86,5 +90,14 @@ describe('persistence', () => {
     const broken = { persisted: async () => { throw new Error('blocked'); } };
     expect(await ensurePersistence({ storage: broken })).toEqual({ supported: false, persisted: false });
     expect(await ensurePersistence({ storage: undefined })).toEqual({ supported: false, persisted: false });
+  });
+});
+
+describe('server-side rendering', () => {
+  it('captureInstallPrompt is inert without an event target', async () => {
+    const ip = captureInstallPrompt(undefined as never);
+    expect(ip.available()).toBe(false);
+    expect(await ip.prompt()).toBe('unavailable');
+    ip.dispose();
   });
 });

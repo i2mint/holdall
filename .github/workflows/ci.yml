@@ -8,7 +8,11 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # never cancel a run on main: it may be publishing
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
 
 jobs:
   validate:
@@ -25,6 +29,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
+      - run: pnpm smoke
       - name: Validate shipped skills
         run: |
           for f in skills/*/SKILL.md; do
@@ -40,6 +45,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v5
@@ -61,7 +67,7 @@ jobs:
       - if: steps.version.outputs.new == 'true'
         run: pnpm install --frozen-lockfile && pnpm build
       - if: steps.version.outputs.new == 'true'
-        run: pnpm publish --access public --no-git-checks
+        run: pnpm publish --access public --no-git-checks --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - if: steps.version.outputs.new == 'true'

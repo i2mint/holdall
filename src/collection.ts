@@ -2,9 +2,9 @@
  * Whole-collection export files: one envelope whose data is `{items: {key: value}}`.
  * Parsing validates item by item, so one bad record is reported, not fatal.
  */
-import { type Envelope, type EnvelopeSpec, isEnvelope, migrate, validate, wrap } from './envelope';
+import { type Envelope, type EnvelopeSpec, isEnvelope, runMigrations, validateWith, wrap } from './envelope';
 import { HoldallError } from './errors';
-import { type Entry, toEntries, type Keyed } from './merge';
+import { type KeyedEntry, toEntries, type Keyed } from './merge';
 
 /** The `kind` of a collection envelope, derived from the item kind. */
 export const collectionKind = (itemKind: string) => `${itemKind}:collection`;
@@ -22,7 +22,7 @@ export function exportCollection<V>(
 }
 
 export interface ParsedCollection<V> {
-  items: Entry<V>[];
+  items: KeyedEntry<V>[];
   rejected: { key: string; error: HoldallError }[];
   /** `collection` for an export file, `item` for a single saved item. */
   source: 'collection' | 'item';
@@ -30,6 +30,7 @@ export interface ParsedCollection<V> {
 
 /**
  * Read a collection export, or a single-item envelope (needs `keyOf`).
+ * Bare (pre-envelope) files are refused: wrap legacy data yourself before calling.
  * Accepts the raw JSON text or an already-parsed value.
  */
 export function parseCollection<V>(
@@ -52,7 +53,7 @@ export function parseCollection<V>(
   if (value.version > spec.version) {
     throw new HoldallError('too-new', `This file comes from a newer version (schema ${value.version}). Reload to update the app.`, value.version);
   }
-  const readItem = (v: unknown): V => validate(migrate(v, value.version, spec.version, spec.migrations), spec.schema);
+  const readItem = (v: unknown): V => validateWith(runMigrations(v, value.version, spec.version, spec.migrations), spec.schema);
 
   if (value.kind === spec.kind) {
     if (!keyOf) throw new HoldallError('wrong-kind', 'This is a single item; pass `keyOf` to import it into a collection.');
@@ -63,7 +64,7 @@ export function parseCollection<V>(
     throw new HoldallError('wrong-kind', `This file holds "${value.kind}", not "${collectionKind(spec.kind)}".`, value.kind);
   }
   const data = value.data as Partial<CollectionData<unknown>> | null;
-  if (!data || typeof data.items !== 'object' || data.items === null) {
+  if (!data || typeof data.items !== 'object' || data.items === null || Array.isArray(data.items)) {
     throw new HoldallError('invalid', 'This collection file has no `items` object.');
   }
   const out: ParsedCollection<V> = { items: [], rejected: [], source: 'collection' };

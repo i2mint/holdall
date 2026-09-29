@@ -10,8 +10,8 @@ The user's data lives with the user: in the browser, in files, in links. Nothing
 
 | # | Seam (one parameter) | v1 default | Replacement that exists |
 |---|---|---|---|
-| 1 | where records live (`provider` in `createPersistence`) | any zodal `DataProvider`; apps start with `@zodal/store-localstorage` | the IndexedDB providers in `@zodal/store-localstorage`, `@zodal/store-fs`, `@zodal/store-http` |
-| 2 | link payload codec (`codec`) | `auto`: `z1` (fflate raw DEFLATE) or `j1` (plain), whichever is shorter | native `CompressionStream('deflate-raw')` (async); encrypted blob with key in fragment |
+| 1 | where records live (`provider` in `createPersistence`) | any zodal `DataProvider`; apps start with `@zodal/store-localstorage` | `@zodal/store-fs`, `@zodal/store-http`, `@zodal/store-supabase`; an IndexedDB records provider is a planned zodal satellite (the existing IndexedDB providers hold content and blobs only) |
+| 2 | link payload codec (`codec`) | `auto`: `z1` (fflate raw DEFLATE) or `j1` (plain), whichever is shorter | an encrypted `e1` codec (AES-GCM, key in the fragment, async): `e1` is reserved (sync decoders raise `async-codec`), and it will arrive as a new async reader beside the sync one; the zodal facade's `readLink` is already async so its callers will not change |
 | 3 | import conflict handling (`policy`, `decisions`) | `rename` with prefix `imported-` | `skip`, `overwrite`, per-key decisions from a dialog |
 | 4 | install UI | `installAdvice()` returns data (kind, steps, copy) | `@khmyznikov/pwa-install` web component |
 | 5 | validation (`schema`) | envelope checks only | any Standard Schema validator (Zod 4, Valibot, ArkType) |

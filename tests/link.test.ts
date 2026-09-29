@@ -96,3 +96,32 @@ describe('link safety and hash routers', () => {
     expect(stripUrlParams('https://x.test/#/editor?s=1', ['s'])).toBe('https://x.test/#/editor');
   });
 });
+
+describe('link robustness', () => {
+  it('reports truncated j1 payloads as bad-payload', () => {
+    expect(() => decodePayload('j1.A')).toThrow(expect.objectContaining({ code: 'bad-payload' }));
+  });
+
+  it('names reserved async codecs, and refuses values without JSON', () => {
+    expect(() => decodePayload('e1.abc')).toThrow(expect.objectContaining({ code: 'async-codec' }));
+    expect(() => encodePayload(undefined)).toThrow(expect.objectContaining({ code: 'invalid' }));
+  });
+
+  it('leaves a URL alone when there is nothing to strip', () => {
+    expect(stripUrlParams('https://x.test/#section-3', ['s'])).toBe('https://x.test/#section-3');
+    expect(stripUrlParams('https://x.test/?q=a%20b', ['s'], { part: 'search' })).toBe('https://x.test/?q=a%20b');
+  });
+
+  it('strips local-id params from both query and fragment when sharing', () => {
+    const link = makeShareLink({ a: 1 }, 'https://x.test/?d=local#d=x&p=1', { stripKeys: ['d'] });
+    const u = new URL(link.url);
+    expect(u.search).toBe('');
+    expect(getUrlParam(u, 'd')).toBeNull();
+    expect(getUrlParam(u, 'p')).toBe('1');
+  });
+
+  it('bounds memory while inflating (the cap trips before the whole payload expands)', () => {
+    const bomb = encodePayload({ s: 'a'.repeat(3_000_000) }, { codec: 'z1' });
+    expect(() => decodePayload(bomb, { maxBytes: 100_000 })).toThrow(/expands past/);
+  });
+});

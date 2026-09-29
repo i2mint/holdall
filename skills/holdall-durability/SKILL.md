@@ -78,7 +78,7 @@ export async function onInstallClick() {
 | `ios-share-sheet` | iPhone, iPad (also Chrome/Firefox on iOS) | numbered steps + `copy.warning`; offer "Save a backup first" | `escapes-7-day-cap` |
 | `macos-add-to-dock` | Safari on macOS 14+ | steps `File > Add to Dock` + `copy.warning` | `escapes-7-day-cap` |
 | `firefox-taskbar` | Firefox on Windows 143+ | one step (taskbar icon in the address bar) | `none` |
-| `open-in-browser` | Instagram, Facebook, Line and other in-app browsers | "open this page in Safari or Chrome" | `none` |
+| `open-in-browser` | Instagram, Facebook, LinkedIn, Line and other in-app browsers, and iOS web views embedded in apps | "open this page in Safari or Chrome" | `none` |
 | `unsupported` | Firefox macOS/Linux, others | no install UI; keep the backup nudge | `none` |
 
 `captureInstallPrompt(target?)` returns `{available(), prompt(), subscribe(cb), dispose()}`. Call it early: the event can fire before your UI mounts, and it fires once per page load. `prompt()` consumes the event; `subscribe` also fires on `appinstalled`. Safari never fires `beforeinstallprompt`, so Apple platforms only ever get instructions.

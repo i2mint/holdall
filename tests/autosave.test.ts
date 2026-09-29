@@ -14,12 +14,11 @@ describe('autosave', () => {
     vi.advanceTimersByTime(99);
     expect(saved).toEqual([]);
     vi.advanceTimersByTime(1);
-    await Promise.resolve();
+    await a.flush(); // let the debounced save settle
     expect(saved).toEqual([2]);
     a.schedule(3);
     win.dispatchEvent(new Event('pagehide'));
-    await Promise.resolve();
-    expect(saved).toEqual([2, 3]);
+    expect(saved).toEqual([2, 3]); // written synchronously inside the pagehide handler
     a.dispose();
   });
 
@@ -56,6 +55,43 @@ describe('autosave', () => {
     await a.flush();
     expect(saved).toEqual([7]);
     expect(a.pending()).toBe(false);
+    a.dispose();
+  });
+});
+
+describe('autosave ordering', () => {
+  it('never lets an older, slower save land after a newer one', async () => {
+    const stored: string[] = [];
+    const delays: Record<string, number> = { A: 30, B: 1 };
+    const a = createAutosave<string>({
+      save: (v) => new Promise((r) => setTimeout(() => (stored.push(v), r()), delays[v])),
+      win: new EventTarget(),
+      doc: new EventTarget(),
+    });
+    a.schedule('A');
+    const first = a.flush();
+    a.schedule('B');
+    await Promise.all([first, a.flush()]);
+    expect(stored).toEqual(['A', 'B']);
+    a.dispose();
+  });
+
+  it('does not re-pend a failed value once a newer one was saved', async () => {
+    const stored: string[] = [];
+    const a = createAutosave<string>({
+      save: async (v) => {
+        if (v === 'A') throw new Error('quota');
+        stored.push(v);
+      },
+      win: new EventTarget(),
+      doc: new EventTarget(),
+    });
+    a.schedule('A');
+    const first = a.flush();
+    a.schedule('B');
+    await Promise.all([first, a.flush()]);
+    await a.flush();
+    expect(stored).toEqual(['B']);
     a.dispose();
   });
 });

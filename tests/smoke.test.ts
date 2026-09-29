@@ -12,3 +12,15 @@ describe.runIf(existsSync('dist/cli.js'))('cli smoke', () => {
     expect(JSON.parse(decoded)).toEqual(JSON.parse(readFileSync('examples/design.json', 'utf8')));
   });
 });
+
+describe.runIf(existsSync('dist/index.cjs'))('CommonJS build', () => {
+  it('plans imports and shares error identity across entry points', () => {
+    const script = [
+      "const h = require('./dist/index.cjs'); const z = require('./dist/zodal.cjs');",
+      'if (h.planImport({a:{x:1}},{a:{x:1}}).identical[0] !== "a") throw new Error("planImport");',
+      "const p = z.createPersistence({provider:{getList:async()=>({data:[],total:0})}, app:'d', kind:'k', version:1});",
+      "p.planImport({}).then(()=>{throw new Error('should reject')}, e => { if (!h.isHoldallError(e,'not-an-envelope')) throw e; });",
+    ].join('\n');
+    execFileSync('node', ['-e', script]);
+  });
+});

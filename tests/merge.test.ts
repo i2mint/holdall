@@ -43,3 +43,15 @@ describe('import planning', () => {
     expect(resolveImport(plan, { policy: 'overwrite' }).writes.map((w) => w.action)).toEqual(['overwrite', 'overwrite']);
   });
 });
+
+describe('import resolution edge cases', () => {
+  it('stops a renameKey that never finds a free key', () => {
+    const plan = planImport({ a: 1, x: 0 }, { a: 2 });
+    expect(() => resolveImport(plan, { renameKey: () => 'x' })).toThrow(/no free key/);
+  });
+
+  it('does not read decisions from the prototype', () => {
+    const plan = planImport({ toString: 1 }, { toString: 2 });
+    expect(resolveImport(plan, { policy: 'skip' }).skipped).toEqual(['toString']);
+  });
+});

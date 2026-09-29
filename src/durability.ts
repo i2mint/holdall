@@ -99,16 +99,25 @@ export type Platform =
   | 'in-app'
   | 'other';
 
-const IN_APP = /FBAN|FBAV|Instagram|Line\/|MicroMessenger|GSA\/|Snapchat|TikTok|; wv\)/;
+const IN_APP = /FBAN|FBAV|Instagram|LinkedInApp|Line\/|MicroMessenger|GSA\/|Snapchat|TikTok|; wv\)/;
+// iOS browsers that can add to the Home Screen; any other iOS UA without "Safari/" is an embedded web view.
+const IOS_BROWSER = /Safari\/|CriOS|FxiOS|EdgiOS/;
+const versionOf = (ua: string, re: RegExp) => Number(re.exec(ua)?.[1] ?? 0);
+const MIN_SAFARI_ADD_TO_DOCK = 17;
+const MIN_FIREFOX_TASKBAR = 143;
 
 export function detectPlatform({ userAgent: ua, maxTouchPoints }: Pick<InstallEnv, 'userAgent' | 'maxTouchPoints'>): Platform {
   if (IN_APP.test(ua)) return 'in-app';
   const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && maxTouchPoints > 1);
-  if (ios) return 'ios';
+  if (ios) return IOS_BROWSER.test(ua) ? 'ios' : 'in-app';
   if (/Android/.test(ua)) return 'android';
-  if (/Firefox\//.test(ua)) return /Windows/.test(ua) ? 'firefox-windows' : 'firefox-other';
+  if (/Firefox\//.test(ua)) {
+    return /Windows/.test(ua) && versionOf(ua, /Firefox\/(\d+)/) >= MIN_FIREFOX_TASKBAR ? 'firefox-windows' : 'firefox-other';
+  }
   if (/Chrome\/|Chromium\/|Edg\//.test(ua)) return 'chromium-desktop';
-  if (/Macintosh/.test(ua) && /Safari\//.test(ua)) return 'macos-safari';
+  if (/Macintosh/.test(ua) && /Safari\//.test(ua)) {
+    return versionOf(ua, /Version\/(\d+)/) >= MIN_SAFARI_ADD_TO_DOCK ? 'macos-safari' : 'other';
+  }
   return 'other';
 }
 
@@ -177,7 +186,7 @@ export function installAdvice(env: InstallEnv, { appName = 'this app' }: { appNa
     return {
       ...base,
       kind: 'menu',
-      steps: platform === 'android' ? ['Open the browser menu (⋮).', 'Choose "Install app" or "Add to Home screen".'] : ['Open the browser menu (⋮).', `Choose "Install ${appName}" (in Chrome, under "Cast, save, and share").`],
+      steps: platform === 'android' ? ['Open the browser menu.', 'Choose "Install app" or "Add to Home screen".'] : ['Open the browser menu.', `Choose "Install ${appName}" (in Chrome, under "Cast, save, and share"; in Edge, under "Apps").`],
       copy: { title: `Install ${appName}`, body: helps },
       storageEffect: 'helps-persistence',
     };
@@ -228,8 +237,9 @@ export function captureInstallPrompt(target: EventTargetLike = globalThis as unk
     event = null;
     notify();
   };
-  target.addEventListener('beforeinstallprompt', onPrompt);
-  target.addEventListener('appinstalled', onInstalled);
+  // Optional chaining: on a server (SSR) there is no event target, and nothing is ever available.
+  target?.addEventListener?.('beforeinstallprompt', onPrompt);
+  target?.addEventListener?.('appinstalled', onInstalled);
   return {
     available: () => event !== null,
     async prompt() {
@@ -245,8 +255,8 @@ export function captureInstallPrompt(target: EventTargetLike = globalThis as unk
       return () => listeners.delete(cb);
     },
     dispose() {
-      target.removeEventListener('beforeinstallprompt', onPrompt);
-      target.removeEventListener('appinstalled', onInstalled);
+      target?.removeEventListener?.('beforeinstallprompt', onPrompt);
+      target?.removeEventListener?.('appinstalled', onInstalled);
       listeners.clear();
     },
   };
