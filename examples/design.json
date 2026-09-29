@@ -1,0 +1,14 @@
+{
+  "app": "demo",
+  "kind": "design",
+  "version": 1,
+  "data": {
+    "id": "k3x9q2ab",
+    "title": "Rounded letters",
+    "text": "KOM",
+    "font": { "family": "Inter", "weight": 700 },
+    "params": { "round": 0.8, "spacing": 0.12, "depth": 6, "bevel": 0.4 },
+    "light": { "azimuth": 135, "elevation": 40 },
+    "colors": ["#e4572e", "#29335c", "#f3a712"]
+  }
+}
